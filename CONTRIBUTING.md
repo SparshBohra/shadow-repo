@@ -12,19 +12,6 @@ Thank you for your interest in contributing. This document outlines the process 
 
 ---
 
-## Development Setup
-
-```bash
-git clone https://github.com/rahulrocksn/stasher.git
-cd stasher
-npm install
-cp .env.example .env
-# Fill in the required environment variables
-npm run dev
-```
-
----
-
 ## Workflow
 
 1. Fork the repository and create a branch from `main`.
