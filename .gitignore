@@ -54,3 +54,16 @@ coverage/
 .cache/
 .eslintcache
 .turbo/
+
+# Project Reference Information
+reference/
+
+# Rust
+target/
+.stasher/
+.deps/
+
+
+# Added by cargo
+
+/target
