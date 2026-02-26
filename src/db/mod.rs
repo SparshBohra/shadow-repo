@@ -12,6 +12,10 @@ impl Database {
     pub async fn init(base_path: &Path) -> Result<Self> {
         let stasher_dir = base_path.join(".stasher");
         
+        // Create storage dirs
+        std::fs::create_dir_all(&stasher_dir)?;
+        std::fs::create_dir_all(stasher_dir.join("objects"))?;
+
         // 1. Initialize SQLite
         let sqlite_path = stasher_dir.join("metadata.db");
         let conn_options = SqliteConnectOptions::new()
@@ -50,6 +54,7 @@ impl Database {
                 file_path TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
                 diff_patch TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
                 lines_added INTEGER NOT NULL,
                 lines_removed INTEGER NOT NULL,
                 FOREIGN KEY(session_id) REFERENCES sessions(id)

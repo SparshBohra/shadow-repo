@@ -1,21 +1,23 @@
 use crate::db::Database;
-use anyhow::{Context, Result};
+use crate::history::HistoryManager;
+use anyhow::Result;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 pub struct StasherDaemon {
-    db: Arc<Database>,
+    history: Arc<HistoryManager>,
     base_path: PathBuf,
 }
 
 impl StasherDaemon {
-    pub fn new(db: Database, base_path: PathBuf) -> Self {
-        Self {
-            db: Arc::new(db),
+    pub async fn new(db: Database, base_path: PathBuf) -> Result<Self> {
+        let history = HistoryManager::new(Arc::new(db), base_path.clone()).await?;
+        Ok(Self {
+            history: Arc::new(history),
             base_path,
-        }
+        })
     }
 
     pub async fn run(&self) -> Result<()> {
@@ -69,13 +71,11 @@ impl StasherDaemon {
             .to_string_lossy()
             .to_string();
 
-        println!("📝 File changed: {}", relative_path);
+        println!("📝 Snapshotting: {}", relative_path);
         
-        // TODO: Implement actual diffing logic here
-        // 1. Read current content
-        // 2. Get last content from DB or CAS
-        // 3. Generate Myers Diff
-        // 4. Record Snapshot
+        if let Err(e) = self.history.record_change(path).await {
+            eprintln!("❌ Failed to record change for {}: {}", relative_path, e);
+        }
         
         Ok(())
     }

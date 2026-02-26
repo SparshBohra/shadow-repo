@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
             let db = db::Database::init(base_path).await?;
             println!("💾 Database ready. Starting daemon...");
             
-            let daemon = daemon::StasherDaemon::new(db, base_path.to_path_buf());
+            let daemon = daemon::StasherDaemon::new(db, base_path.to_path_buf()).await?;
             daemon.run().await?;
             
             Ok(())
