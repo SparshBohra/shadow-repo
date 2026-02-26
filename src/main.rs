@@ -41,6 +41,26 @@ async fn main() -> Result<()> {
             
             Ok(())
         }
+        Commands::Ask { query } => {
+            println!("🔍 Searching for: \"{}\"...", query);
+            let db = db::Database::init(base_path).await?;
+            let search = search::SearchEngine::new(db.lancedb.clone()).await?;
+            
+            let results = search.search(query.clone(), 5).await?;
+            
+            if results.is_empty() {
+                println!("🤷 No relevant history found.");
+            } else {
+                println!("✨ Found {} relevant snapshots:", results.len());
+                for (i, res) in results.iter().enumerate() {
+                    println!("\n[{}] File: {}", i + 1, res.file_path);
+                    println!("--- Snippet ---");
+                    let snippet: String = res.content.lines().take(5).collect::<Vec<_>>().join("\n");
+                    println!("{}...", snippet);
+                }
+            }
+            Ok(())
+        }
         _ => {
             println!("Command not implemented yet!");
             Ok(())

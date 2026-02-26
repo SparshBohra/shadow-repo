@@ -6350,11 +6350,14 @@ name = "stasher"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrow-array",
+ "arrow-schema",
  "blake3",
  "chrono",
  "clap",
  "dotenvy",
  "fastembed",
+ "futures-util",
  "lancedb",
  "notify",
  "serde",

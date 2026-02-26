@@ -67,3 +67,4 @@ target/
 # Added by cargo
 
 /target
+.fastembed_cache/

@@ -5,16 +5,19 @@ use std::fs;
 use chrono::Utc;
 use uuid::Uuid;
 use similar::{TextDiff, ChangeTag};
+use std::sync::Arc;
+use crate::search::SearchEngine;
 
 pub struct HistoryManager {
-    db: std::sync::Arc<Database>,
+    db: Arc<Database>,
+    search: Arc<SearchEngine>,
     base_path: PathBuf,
     objects_path: PathBuf,
     current_session_id: Uuid,
 }
 
 impl HistoryManager {
-    pub async fn new(db: std::sync::Arc<Database>, base_path: PathBuf) -> Result<Self> {
+    pub async fn new(db: Arc<Database>, base_path: PathBuf) -> Result<Self> {
         let objects_path = base_path.join(".stasher").join("objects");
         
         // Start a new session for the daemon run
@@ -27,8 +30,12 @@ impl HistoryManager {
             .execute(&db.sqlite)
             .await?;
 
+        // Initialize search engine
+        let search = Arc::new(SearchEngine::new(db.lancedb.clone()).await?);
+
         Ok(Self {
             db,
+            search,
             base_path,
             objects_path,
             current_session_id: session_id,
@@ -54,7 +61,7 @@ impl HistoryManager {
         .fetch_optional(&self.db.sqlite)
         .await?;
 
-        if let Some((old_hash, _)) = latest {
+        let (diff_patch, added, removed) = if let Some((old_hash, _)) = latest {
             if old_hash == new_hash {
                 // No actual content change
                 return Ok(());
@@ -69,12 +76,12 @@ impl HistoryManager {
             };
 
             let diff = TextDiff::from_lines(&old_content, &content);
-            let mut diff_patch = String::new();
+            let mut patch = String::new();
             let mut added = 0;
             let mut removed = 0;
 
             for hunk in diff.unified_diff().header(&relative_path, &relative_path).iter_hunks() {
-                diff_patch.push_str(&format!("{}", hunk));
+                patch.push_str(&format!("{}", hunk));
                 for change in hunk.iter_changes() {
                     match change.tag() {
                         ChangeTag::Delete => removed += 1,
@@ -83,17 +90,22 @@ impl HistoryManager {
                     }
                 }
             }
-
-            self.save_snapshot(&relative_path, &new_hash, &diff_patch, added, removed).await?;
+            (patch, added, removed)
         } else {
             // First time seeing this file, diff is the whole file
-            let diff_patch = format!("--- /dev/null\n+++ {}\n@@ -0,0 +1,{} @@\n{}", 
+            let patch = format!("--- /dev/null\n+++ {}\n@@ -0,0 +1,{} @@\n{}", 
                 relative_path, 
                 content.lines().count(),
                 content.lines().map(|l| format!("+{}", l)).collect::<Vec<_>>().join("\n")
             );
-            
-            self.save_snapshot(&relative_path, &new_hash, &diff_patch, content.lines().count() as i32, 0).await?;
+            (patch, content.lines().count() as i32, 0)
+        };
+
+        let snapshot_id = self.save_snapshot(&relative_path, &new_hash, &diff_patch, added, removed).await?;
+
+        // 3. Index for semantic search
+        if let Err(e) = self.search.index_snapshot(snapshot_id, relative_path, content.clone()).await {
+            eprintln!("⚠️ Failed to index snapshot: {}", e);
         }
 
         // Save to CAS
@@ -103,7 +115,7 @@ impl HistoryManager {
         Ok(())
     }
 
-    async fn save_snapshot(&self, file_path: &str, hash: &str, patch: &str, added: i32, removed: i32) -> Result<()> {
+    async fn save_snapshot(&self, file_path: &str, hash: &str, patch: &str, added: i32, removed: i32) -> Result<String> {
         let snapshot_id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
 
@@ -111,7 +123,7 @@ impl HistoryManager {
             "INSERT INTO snapshots (id, session_id, file_path, timestamp, diff_patch, content_hash, lines_added, lines_removed) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         )
-        .bind(snapshot_id)
+        .bind(&snapshot_id)
         .bind(self.current_session_id.to_string())
         .bind(file_path)
         .bind(now)
@@ -122,6 +134,6 @@ impl HistoryManager {
         .execute(&self.db.sqlite)
         .await?;
 
-        Ok(())
+        Ok(snapshot_id)
     }
 }

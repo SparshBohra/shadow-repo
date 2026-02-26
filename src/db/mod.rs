@@ -32,7 +32,9 @@ impl Database {
 
         // 2. Initialize LanceDB
         let vector_path = stasher_dir.join("vectors");
-        let lancedb = connect(vector_path.to_str().unwrap()).execute().await?;
+        std::fs::create_dir_all(&vector_path)?;
+        let abs_path = vector_path.canonicalize()?;
+        let lancedb = connect(abs_path.to_str().unwrap()).execute().await?;
 
         Ok(Self { sqlite, lancedb })
     }
