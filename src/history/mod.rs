@@ -175,4 +175,32 @@ impl HistoryManager {
 
         Ok(())
     }
+
+    pub async fn list_snapshots(&self, file_path: &str) -> Result<Vec<SnapshotSummary>> {
+        let search_path = if PathBuf::from(file_path).is_relative() {
+            self.base_path.join(file_path).to_string_lossy().to_string()
+        } else {
+            file_path.to_string()
+        };
+
+        let snapshots = sqlx::query_as::<_, SnapshotSummary>(
+            "SELECT id, timestamp, lines_added, lines_removed FROM snapshots 
+             WHERE file_path = ? OR file_path LIKE ? 
+             ORDER BY timestamp DESC"
+        )
+        .bind(&search_path)
+        .bind(format!("%/{}", file_path))
+        .fetch_all(&self.db.sqlite)
+        .await?;
+
+        Ok(snapshots)
+    }
+}
+
+#[derive(sqlx::FromRow)]
+pub struct SnapshotSummary {
+    pub id: String,
+    pub timestamp: i64,
+    pub lines_added: i32,
+    pub lines_removed: i32,
 }

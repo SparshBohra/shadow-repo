@@ -75,9 +75,37 @@ async fn main() -> Result<()> {
             println!("✅ Restore complete.");
             Ok(())
         }
-        _ => {
-            println!("Command not implemented yet!");
+        Commands::Show { file } => {
+            println!("📜 History for {}:", file);
+            let db = db::Database::init(&base_path).await?;
+            let history = history::HistoryManager::new(std::sync::Arc::new(db), base_path.to_path_buf()).await?;
+            
+            let snapshots = history.list_snapshots(file).await?;
+            
+            if snapshots.is_empty() {
+                println!("🤷 No history found for this file.");
+            } else {
+                for snap in snapshots {
+                    let dt = chrono::Utc::now().timestamp_millis() - snap.timestamp;
+                    let ago = if dt < 60000 {
+                        format!("{}s ago", dt / 1000)
+                    } else if dt < 3600000 {
+                        format!("{}m ago", dt / 60000)
+                    } else {
+                        format!("{}h ago", dt / 3600000)
+                    };
+
+                    println!(
+                        "[{}] {} | +{}, -{} lines",
+                        &snap.id[..7],
+                        ago,
+                        snap.lines_added,
+                        snap.lines_removed
+                    );
+                }
+            }
             Ok(())
         }
     }
+    Ok(())
 }
