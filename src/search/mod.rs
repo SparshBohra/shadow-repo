@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 use lancedb::query::{ExecutableQuery, QueryBase};
-use lancedb::{Table, Connection};
+use lancedb::Connection;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use arrow_array::{RecordBatch, StringArray, RecordBatchIterator};

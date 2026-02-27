@@ -136,4 +136,43 @@ impl HistoryManager {
 
         Ok(snapshot_id)
     }
+
+    pub async fn restore_file(&self, file_path: &str, snapshot_id: Option<String>) -> Result<()> {
+        // Try to handle both relative and absolute paths for searching
+        let search_path = if PathBuf::from(file_path).is_relative() {
+            self.base_path.join(file_path).to_string_lossy().to_string()
+        } else {
+            file_path.to_string()
+        };
+
+        let (hash, actual_path): (String, String) = if let Some(id) = snapshot_id {
+            sqlx::query_as("SELECT content_hash, file_path FROM snapshots WHERE id = ?")
+                .bind(&id)
+                .fetch_optional(&self.db.sqlite)
+                .await?
+                .context(format!("Snapshot ID {} not found", id))?
+        } else {
+            // Restore to the latest known state for this file
+            sqlx::query_as("SELECT content_hash, file_path FROM snapshots WHERE file_path = ? OR file_path LIKE ? ORDER BY timestamp DESC LIMIT 1")
+                .bind(&search_path)
+                .bind(format!("%/{}", file_path))
+                .fetch_optional(&self.db.sqlite)
+                .await?
+                .context(format!("No history found for file: {}", file_path))?
+        };
+
+        let object_path = self.objects_path.join(&hash);
+        let content = fs::read(object_path)
+            .context("Failed to read historical object from CAS")?;
+
+        let target_path = if PathBuf::from(&actual_path).is_absolute() {
+            PathBuf::from(&actual_path)
+        } else {
+            self.base_path.join(&actual_path)
+        };
+        fs::write(target_path, content)
+            .context("Failed to write restored content to disk")?;
+
+        Ok(())
+    }
 }
