@@ -3,6 +3,7 @@ mod daemon;
 mod history;
 mod search;
 
+use std::path::{Path, PathBuf};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
@@ -16,6 +17,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Initialize a new Stasher history in the current directory
+    Init,
     /// Start the background daemon
     Daemon,
     /// Search history using natural language
@@ -30,21 +33,65 @@ enum Commands {
     },
 }
 
+fn find_stasher_root(start_path: &Path) -> Option<PathBuf> {
+    let mut current = start_path.to_path_buf();
+    loop {
+        if current.join(".stasher").exists() {
+            return Some(current);
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    None
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let base_path = std::env::current_dir()?;
+    let current_dir = std::env::current_dir()?;
+    
+    // For Init, we use current directory. For others, we try to find the root.
+    let base_path = if matches!(cli.command, Commands::Init) {
+        current_dir.clone()
+    } else {
+        find_stasher_root(&current_dir).unwrap_or(current_dir.clone())
+    };
 
     match &cli.command {
+        Commands::Init => {
+            println!("🚀 Initializing Stasher repository in {}...", base_path.display());
+            let db = db::Database::init(&base_path).await?;
+            let history = history::HistoryManager::new(std::sync::Arc::new(db), base_path.to_path_buf()).await?;
+            
+            // Perform initial sync of all files
+            history.sync_all().await?;
+
+            // Check if .gitignore exists and add .stasher if missing
+            let gitignore_path = base_path.join(".gitignore");
+            if gitignore_path.exists() {
+                let current_content = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
+                if !current_content.contains(".stasher/") {
+                    use std::fs::OpenOptions;
+                    use std::io::Write;
+                    let mut file = OpenOptions::new()
+                        .append(true)
+                        .open(&gitignore_path)?;
+                    writeln!(file, "\n# Stasher local history\n.stasher/")?;
+                    println!("📝 Added .stasher/ to .gitignore");
+                }
+            }
+
+            println!("✨ Stasher initialized successfully!");
+            Ok(())
+        }
         Commands::Daemon => {
             println!("🚀 Initializing Stasher database in .stasher/ ...");
             let db = db::Database::init(&base_path).await?;
             println!("💾 Database ready. Starting daemon...");
             
             let daemon = daemon::StasherDaemon::new(db, base_path.to_path_buf()).await?;
-            daemon.run().await?;
-            
-            Ok(())
+            daemon.run().await
         }
         Commands::Ask { query } => {
             println!("🔍 Searching for: \"{}\"...", query);
@@ -107,5 +154,4 @@ async fn main() -> Result<()> {
             Ok(())
         }
     }
-    Ok(())
 }

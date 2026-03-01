@@ -57,12 +57,7 @@ impl StasherDaemon {
     }
 
     fn should_watch(&self, path: &Path) -> bool {
-        // Ignore .git, .stasher, and other noise
-        let path_str = path.to_string_lossy();
-        !path_str.contains("/.git/") && 
-        !path_str.contains("/.stasher/") && 
-        !path_str.contains("/target/") &&
-        path.is_file()
+        path.is_file() && self.history.should_index(path)
     }
 
     async fn process_file_change(&self, path: PathBuf) -> Result<()> {

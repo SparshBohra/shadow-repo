@@ -1,6 +1,6 @@
 use crate::db::Database;
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::fs;
 use chrono::Utc;
 use uuid::Uuid;
@@ -135,6 +135,29 @@ impl HistoryManager {
         .await?;
 
         Ok(snapshot_id)
+    }
+
+    pub async fn sync_all(&self) -> Result<()> {
+        use walkdir::WalkDir;
+        
+        println!("📂 Scanning project for existing files...");
+        for entry in WalkDir::new(&self.base_path).into_iter().filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_file() && self.should_index(path) {
+                if let Err(e) = self.record_change(path.to_path_buf()).await {
+                    eprintln!("⚠️ Failed to sync {}: {}", path.display(), e);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn should_index(&self, path: &Path) -> bool {
+        let path_str = path.to_string_lossy();
+        !path_str.contains("/.git/") && 
+        !path_str.contains("/.stasher/") && 
+        !path_str.contains("/target/") &&
+        !path_str.contains("/.fastembed_cache/")
     }
 
     pub async fn restore_file(&self, file_path: &str, snapshot_id: Option<String>) -> Result<()> {
