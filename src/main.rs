@@ -31,6 +31,11 @@ enum Commands {
         #[arg(short, long)]
         snapshot: Option<String> 
     },
+    /// Clean up old snapshots and unused objects
+    Prune {
+        #[arg(short, long, default_value_t = 30)]
+        days: u32,
+    },
 }
 
 fn find_stasher_root(start_path: &Path) -> Option<PathBuf> {
@@ -151,6 +156,17 @@ async fn main() -> Result<()> {
                     );
                 }
             }
+            Ok(())
+        }
+        Commands::Prune { days } => {
+            println!("🧹 Pruning snapshots older than {} days...", days);
+            let db = db::Database::init(&base_path).await?;
+            let history = history::HistoryManager::new(std::sync::Arc::new(db), base_path.to_path_buf()).await?;
+            
+            let (deleted_snaps, deleted_objs) = history.prune_history(*days).await?;
+            println!("✅ Cleanup complete:");
+            println!("   - {} snapshots removed from database", deleted_snaps);
+            println!("   - {} unused objects deleted from disk", deleted_objs);
             Ok(())
         }
     }

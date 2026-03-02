@@ -137,6 +137,49 @@ impl HistoryManager {
         Ok(snapshot_id)
     }
 
+    pub async fn prune_history(&self, days: u32) -> Result<(u64, u64)> {
+        let cutoff = Utc::now().timestamp_millis() - (days as i64 * 24 * 60 * 60 * 1000);
+        
+        // 1. Delete old snapshots from SQLite
+        let rows_affected = sqlx::query("DELETE FROM snapshots WHERE timestamp < ?")
+            .bind(cutoff)
+            .execute(&self.db.sqlite)
+            .await?
+            .rows_affected();
+
+        // 2. Perform Garbage Collection on the objects folder
+        let deleted_objects = self.cleanup_unused_objects().await?;
+        
+        Ok((rows_affected, deleted_objects))
+    }
+
+    async fn cleanup_unused_objects(&self) -> Result<u64> {
+        use std::collections::HashSet;
+        
+        // Find all hashes still referenced in the database
+        let active_hashes: Vec<(String,)> = sqlx::query_as("SELECT DISTINCT content_hash FROM snapshots")
+            .fetch_all(&self.db.sqlite)
+            .await?;
+        
+        let hash_set: HashSet<String> = active_hashes.into_iter().map(|h| h.0).collect();
+        
+        let mut deleted_count = 0;
+        if self.objects_path.exists() {
+            for entry in fs::read_dir(&self.objects_path)? {
+                let entry = entry?;
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                
+                // If the file (hash) is not in our active set, it's garbage
+                if !hash_set.contains(&file_name) {
+                    fs::remove_file(entry.path())?;
+                    deleted_count += 1;
+                }
+            }
+        }
+        
+        Ok(deleted_count)
+    }
+
     pub async fn sync_all(&self) -> Result<()> {
         use walkdir::WalkDir;
         
