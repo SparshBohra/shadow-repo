@@ -203,6 +203,52 @@ impl HistoryManager {
         !path_str.contains("/.fastembed_cache/")
     }
 
+    pub async fn get_stats(&self) -> Result<ProjectStats> {
+        let total_snapshots: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM snapshots")
+            .fetch_one(&self.db.sqlite)
+            .await?;
+            
+        let total_sessions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&self.db.sqlite)
+            .await?;
+
+        let objects_size = self.calculate_dir_size(&self.objects_path)?;
+        let db_size = self.calculate_dir_size(&self.base_path.join(".stasher"))?;
+        
+        // Count files indexed in LanceDB
+        let table_names: Vec<String> = self.db.lancedb.table_names().execute().await?;
+        let indexed_count = if table_names.contains(&"snapshots_v1".to_string()) {
+            let table = self.db.lancedb.open_table("snapshots_v1").execute().await?;
+            table.count_rows(None).await? as u64
+        } else {
+            0
+        };
+
+        Ok(ProjectStats {
+            total_snapshots,
+            total_sessions,
+            objects_size,
+            total_size: db_size,
+            indexed_count,
+        })
+    }
+
+    fn calculate_dir_size(&self, path: &Path) -> Result<u64> {
+        let mut size = 0;
+        if path.exists() {
+            for entry in fs::read_dir(path)? {
+                let entry = entry?;
+                let file_type = entry.file_type()?;
+                if file_type.is_file() {
+                    size += entry.metadata()?.len();
+                } else if file_type.is_dir() {
+                    size += self.calculate_dir_size(&entry.path())?;
+                }
+            }
+        }
+        Ok(size)
+    }
+
     pub async fn get_snapshot_diff(&self, snapshot_id: &str) -> Result<String> {
         let diff: String = sqlx::query_scalar("SELECT diff_patch FROM snapshots WHERE id = ? OR id LIKE ?")
             .bind(snapshot_id)
@@ -280,4 +326,12 @@ pub struct SnapshotSummary {
     pub timestamp: i64,
     pub lines_added: i32,
     pub lines_removed: i32,
+}
+
+pub struct ProjectStats {
+    pub total_snapshots: i64,
+    pub total_sessions: i64,
+    pub objects_size: u64,
+    pub total_size: u64,
+    pub indexed_count: u64,
 }
