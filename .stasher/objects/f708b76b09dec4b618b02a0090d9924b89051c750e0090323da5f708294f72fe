@@ -1,0 +1,2 @@
+fn main() { println!("Initial setup"); }
+fn login() { println!("Authenticating user..."); }

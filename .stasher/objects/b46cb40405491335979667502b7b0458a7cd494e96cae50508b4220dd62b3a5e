@@ -1,0 +1,1 @@
+fn main() { println!("Day 1: Initial project setup"); }

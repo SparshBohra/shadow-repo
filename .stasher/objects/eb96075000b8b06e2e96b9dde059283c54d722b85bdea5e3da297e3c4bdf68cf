@@ -1,0 +1,3 @@
+fn main() { println!("Initial setup"); }
+fn login() { println!("Authenticating user..."); }
+fn connect() { println!("Connecting to database pool"); }
