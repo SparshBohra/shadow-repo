@@ -55,13 +55,25 @@ Stasher consists of a lightweight daemon and a structured storage layer.
 Stasher is controlled via a command-line interface:
 
 - `stasher init`: Initialize a new project and perform an initial sync.
-- `stasher daemon`: Start the background watcher (only one instance allowed).
+- `stasher projects`: List all projects tracked by Stasher on this machine.
+- `stasher global-ask <query>`: Semantic search across all registered projects.
+- `stasher daemon`: Start the background watcher (only one instance allowed per project).
 - `stasher show <file>`: View the timeline for a file (including history from moved/renamed versions).
 - `stasher diff <snapshot_id>`: Show a colorized diff of exactly what changed in a specific snapshot.
-- `stasher ask <query>`: Semantic natural language search across your history.
+- `stasher ask <query>`: Semantic natural language search across the current project.
 - `stasher restore <file> --snapshot <id>`: Restore a file. Stasher automatically snapshots your current "unsaved" work before overwriting as a safety net.
 - `stasher status`: View project statistics, disk space saved by deduplication, and daemon status.
 - `stasher prune --days <n>`: Clean up snapshots older than `n` days and garbage-collect unused objects.
+
+---
+
+## Global Hub Architecture
+
+Stasher uses a "Hub & Spoke" model for multi-project management.
+- **The Hub (`~/.stasher/hub.db`)**: A central registry that tracks the location and activity of every Stasher project on your machine.
+- **The Spokes (`<project>/.stasher/`)**: Each project maintains its own isolated database, vector index, and object storage.
+
+When you run a `global-ask`, Stasher queries the Hub to find active projects and then performs parallel semantic searches across all of them, aggregating the results into a single view.
 
 ---
 

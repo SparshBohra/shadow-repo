@@ -6408,6 +6408,7 @@ dependencies = [
  "dotenvy",
  "fastembed",
  "futures-util",
+ "home",
  "ignore",
  "lancedb",
  "notify",

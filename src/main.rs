@@ -2,6 +2,7 @@ mod db;
 mod daemon;
 mod history;
 mod search;
+mod hub;
 
 use std::path::{Path, PathBuf};
 use anyhow::Result;
@@ -40,6 +41,10 @@ enum Commands {
     Diff { snapshot: String },
     /// Show project statistics and daemon status
     Status,
+    /// List all projects tracked by Stasher on this machine
+    Projects,
+    /// Search across all tracked projects
+    GlobalAsk { query: String },
 }
 
 fn find_stasher_root(start_path: &Path) -> Option<PathBuf> {
@@ -92,6 +97,12 @@ async fn main() -> Result<()> {
             }
 
             println!("✨ Stasher initialized successfully!");
+
+            // Register project with global hub
+            let hub = hub::StasherHub::init().await?;
+            hub.register_project(&base_path).await?;
+            println!("🌐 Project registered globally in Stasher Hub.");
+            
             Ok(())
         }
         Commands::Daemon => {
@@ -110,6 +121,10 @@ async fn main() -> Result<()> {
             
             let daemon = daemon::StasherDaemon::new(db, base_path.to_path_buf()).await?;
             
+            // Update last_active in global hub
+            if let Ok(hub) = hub::StasherHub::init().await {
+                let _ = hub.register_project(&base_path).await;
+            }
             // Cleanup lock file on exit
             let res = daemon.run().await;
             let _ = std::fs::remove_file(lock_path);
@@ -254,6 +269,73 @@ async fn main() -> Result<()> {
                     println!("{}", line.blue());
                 } else {
                     println!("{}", line);
+                }
+            }
+            Ok(())
+        }
+        Commands::Projects => {
+            use colored::Colorize;
+            let hub = hub::StasherHub::init().await?;
+            let projects = hub.list_projects().await?;
+
+            println!("{}", "🌐 Registered Stasher Projects".bold().bright_white());
+            println!("{:-<40}", "");
+
+            if projects.is_empty() {
+                println!("🤷 No projects tracked yet. Run 'stasher init' in a project!");
+            } else {
+                for p in projects {
+                    let dt = chrono::Utc::now().timestamp_millis() - p.last_active;
+                    let ago = if dt < 60000 {
+                        format!("{}s ago", dt / 1000)
+                    } else if dt < 3600000 {
+                        format!("{}m ago", dt / 60000)
+                    } else {
+                        format!("{}h ago", dt / 3600000)
+                    };
+
+                    println!(
+                        "{} {} {}",
+                        "●".green(),
+                        p.name.bold().cyan(),
+                        format!("({})", p.path).dimmed()
+                    );
+                    println!("  Active: {}", ago.yellow());
+                }
+            }
+            Ok(())
+        }
+        Commands::GlobalAsk { query } => {
+            use colored::Colorize;
+            println!("🌐 Global Search: \"{}\"...", query.bold().cyan());
+            let hub = hub::StasherHub::init().await?;
+            let projects = hub.list_projects().await?;
+            
+            let mut all_results = Vec::new();
+
+            for project in projects {
+                let project_path = PathBuf::from(&project.path);
+                if !project_path.exists() { continue; }
+
+                if let Ok(db) = db::Database::init(&project_path).await {
+                    let search = search::SearchEngine::new(db.lancedb.clone()).await?;
+                    if let Ok(results) = search.search(query.clone(), 3).await {
+                        for res in results {
+                            all_results.push((project.name.clone(), res));
+                        }
+                    }
+                }
+            }
+
+            if all_results.is_empty() {
+                println!("🤷 No relevant history found in any project.");
+            } else {
+                println!("✨ Found {} matches across your projects:", all_results.len());
+                for (proj_name, res) in all_results {
+                    println!("\n{} | File: {}", proj_name.bold().magenta(), res.file_path.cyan());
+                    let snippet: String = res.content.lines().take(3).collect::<Vec<_>>().join("\n");
+                    println!("--- Snippet ---");
+                    println!("{}...", snippet);
                 }
             }
             Ok(())
